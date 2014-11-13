@@ -1,0 +1,139 @@
+# The two routines perform the following
+# 1)parseHL7 takes a 4 line string consisting of an OBR record and creates a
+# Patient and Observation dictionary record and RETURNS:
+# a list of 2 dictionaries(patient and observation, followed by each dictionary
+# 
+# 2)save(hl7_dic)takes a dictionary or a list of dictionaries and saves them
+# into a Mongo database named mydb
+# Note if neither a dictionary or list is passed to the save function it will
+# return an error msg 3 else return nothing
+
+
+def parseHL7(hl7_msg=""):
+    """
+    Parses an HL7 message into a JSON-LD document suitable for persisting
+    into MongoDB
+
+    hl7_msg -- a string containing the HL7 message to be parsed
+
+    Returns a python dictionary representing the document to be stored
+    """
+
+    from hl7apy.parser import parse_segments ,parse_message
+    ##hl17_msg = "MSH|^~\&|||||20141026175757||ORU^R01|||2.5\rPID|||67^^^MIMIC2||||20030604|M\rOBX||NM|41276-7^^LOINC||22.0\rOBR||||41276-7^Anion gap in Blood^LOINC|||297611282122\r"
+    s2 = hl7_msg  #prepare to parse string
+    m3 = parse_message(s2,find_groups=False)
+    text = m3.PID.PID_7.to_er7()  #get birthdate
+    bdate = text[0:4] +'-' + text[4:6] +'-' + text[6:8]  # use date only
+    patdict = {
+       "resourceType": "Patient",
+       "identifier": [
+         {
+           "use": "usual",
+           "label": "MRN",
+           "system": "urn:oid:2.16.840.1.113883.19.5",
+           "value": m3.PID.PID_3.CX_1.to_er7() # <-------- This is where you should place the MRN
+         }
+       ],
+       "gender": {
+         "coding": [
+           {
+             "system": "http://hl7.org/fhir/v3/AdministrativeGender",
+             "code": m3.PID.PID_8.to_er7() # <-------- This is where you should place the SEX
+           }
+         ]
+       },
+       "birthDate": bdate,  #<-------- This is where you should place the DOB
+       "managingOrganization": {
+         "reference": "Organization/2.16.840.1.113883.19.5",
+         "display": "MIMIC2"
+       },
+     }
+    obsdict = {
+       "resourceType": "Observation",
+       "name": {
+         "coding": [
+           {
+             "system": "http://loinc.org",
+             "code": m3.obx.obx_3.CE_1.to_er7(), # <-------- This is where you should place the LOINC code
+             "display":  m3.obr.obr_4.CE_2.to_er7() # <-------- This is where you should place the text description
+           }
+         ]
+       },
+       "valueQuantity": {
+         "value": m3.obx.obx_5.to_er7(), # <-------- This is where you should place the test value
+       },
+       "issued": "2013-04-03T15:30:10+01:00",
+       "status": "final",
+       "subject": {
+         "reference": m3.PID.PID_3.CX_1.to_er7(), # <-------- This is replaced with the MRN
+         "display": "De Identified Data"  # <-------- This is replaced with the MRN
+       },
+     }
+    record_list = []
+    record_list =[patdict,obsdict]
+    return record_list, obsdict , patdict   # return 2 dictionaries
+#
+def save(hl7_dic=""):
+
+    
+    ### assumes ran mongod and  mongo to instantiate mongoDB shell and connection
+    import pymongo
+    from pymongo import MongoClient
+    client = MongoClient()
+    db = client.mydb
+    collection = db.mydb
+   
+ 
+    #print type(hl7_dic) 
+    if type(hl7_dic) == dict:
+        #####when in mongodb use mydb
+        post = hl7_dic
+        posts = db.mydb
+        post_id = posts.insert(post)
+        post_id
+        return ##"1" when testing dictionaries
+        
+    ##### not a dictionary but a list
+  
+    if type(hl7_dic) == list:
+        for dictelem in hl7_dic:
+            post = hl7_dic
+            posts = db.mydb
+            post_id = posts.insert(dictelem)
+            post_id            
+        return ##"2" when testing lists
+    
+    return "3 error tried to save neither a dictionary or a list"
+
+def get_input():
+    
+    pass
+
+
+
+    
+#main
+"""
+The following tests a msg 
+"""
+dict1 ={}
+list1 =[]
+dict2 ={}
+# test no date entered will return "--"
+#msg = "MSH|^~\&|||||20141026175757||ORU^R01|||2.5\rPID|||67^^^MIMIC2|||||M\rOBX||NM|41276-7^^LOINC||22.0\rOBR||||41276-7^Anion gap in Blood^LOINC|||297611282122\r"
+msg = "MSH|^~\&|||||20141026175757||ORU^R01|||2.5\rPID|||67^^^MIMIC2||||20030604|M\rOBX||NM|41276-7^^LOINC||22.0\rOBR||||41276-7^Anion gap in Blood^LOINC|||297611282122\r"
+list1, dict1, dict2  = parseHL7(msg)
+#print dict1 , "\n" , dict2
+
+#list1 = [dict1,dict2]
+#print list1
+#result = save(dict1)
+#print result
+result = save(list1)
+#print result
+#result = save(msg)
+#print result
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()
